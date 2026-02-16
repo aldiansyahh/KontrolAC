@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Log AC</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <!-- Bootstrap 5 -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+
+<body class="bg-light">
+<div class="d-flex" style="height:100vh; overflow:hidden">
+
+  <!-- SIDEBAR -->
+    <div class="bg-primary text-white p-3 d-flex flex-column sidebar"
+        style="width:220px; min-height:100vh;">
+
+      <h5 class="text-center mb-4">Smart AC</h5>
+      <hr class="border-light">
+
+      <ul class="nav nav-pills flex-column gap-2">
+        <li class="nav-item">
+          <a href="/" class="nav-link text-white sidebar-link">
+            Dashboard
+          </a>
+        </li>
+        <li class="nav-item">
+          <a href="/logs" class="nav-link active bg-white text-primary fw-semibold">
+            Log AC
+          </a>
+        </li>
+      </ul>
+
+      <footer class="mt-auto text-white-50 small text-center pt-3">
+        © 2025 Smart AC | Aldiansyah
+      </footer>
+    </div>
+
+  <!-- CONTENT -->
+  <div class="flex-fill p-4 d-flex flex-column" style="overflow:hidden">
+
+    <h4 class="text-primary mb-3">Log History AC</h4>
+
+    <!-- FILTER TANGGAL -->
+    <form method="get" class="row g-2 mb-3 align-items-end">
+      <div class="col-auto">
+        <label class="form-label fw-semibold">Pilih Tanggal</label>
+        <input type="date" name="date" class="form-control"
+               value="{{ selected_date }}">
+      </div>
+
+      <div class="col-auto">
+        <button class="btn btn-primary">Filter</button>
+        <a href="/logs" class="btn btn-secondary">Reset</a>
+      </div>
+    </form>
+
+    <!-- TABLE -->
+    <div class="table-responsive border rounded bg-white"
+         style="flex:1; overflow:auto">
+
+      <table class="table table-bordered table-striped table-hover table-sm mb-0">
+        <thead class="table-primary text-center sticky-top">
+          <tr>
+            <th>Waktu</th>
+            <th>Orang</th>
+            <th>Suhu (°C)</th>
+            <th>Status AC</th>
+            <th>Target (°C)</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {% for row in history %}
+          <tr class="text-center">
+            <td>{{ row.timestamp }}</td>
+            <td>{{ row.detected_people }}</td>
+            <td>{{ row.temperature }}</td>
+            <td>
+              <span class="badge {% if row.ac_status == 'ON' %}bg-success{% else %}bg-secondary{% endif %}">
+                {{ row.ac_status }}
+              </span>
+            </td>
+            <td>{{ row.target_temp }}</td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="5" class="text-center text-muted py-4">
+              Tidak ada data
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+    </div>
+  </div>
+</div>
+</body>
+</html>
