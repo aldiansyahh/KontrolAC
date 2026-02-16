@@ -1,0 +1,225 @@
+// =======================
+// TRANSMITTER ESP32
+// =======================
+
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <DHT.h>
+#include <IRremoteESP8266.h>
+#include <IRsend.h>
+
+// =======================
+// PIN & SENSOR
+// =======================
+#define DHTPIN 15
+#define DHTTYPE DHT11
+#define IR_SEND_PIN 17
+
+DHT dht(DHTPIN, DHTTYPE);
+IRsend irsend(IR_SEND_PIN);
+
+// =======================
+// WIFI & SERVER
+// =======================
+const char* ssid = "AndroidDi";
+const char* password = "aldialdi";
+const char* server_post = "http://10.125.184.217:5000/update_sensor";
+const char* server_get  = "http://10.125.184.217:5000/target_temp";
+
+// =======================
+// STATE AC
+// =======================
+String ac_status = "OFF";
+int target_temp = 22;
+String ac_brand = "LG";
+
+// =======================
+// STATE MEMORY (ANTI IR SPAM)
+// =======================
+String last_ac_status = "";
+int last_target_temp = -1;
+
+// =======================
+// TIMER
+// =======================
+unsigned long lastDHT = 0;
+const unsigned long DHT_INTERVAL = 3000; // 3 detik (aman DHT11)
+
+// =======================
+// SETUP
+// =======================
+void setup() {
+  Serial.begin(115200);
+  dht.begin();
+  irsend.begin();
+
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\n✅ WiFi Terhubung");
+}
+
+// =======================
+// LOOP
+// =======================
+void loop() {
+
+  // ==================================================
+  // 🌡️ BACA DHT (TERPISAH & LAMBAT)
+  // ==================================================
+  if (millis() - lastDHT >= DHT_INTERVAL) {
+    lastDHT = millis();
+
+    float temp = dht.readTemperature();
+    float hum  = dht.readHumidity();
+
+    Serial.printf("🌡️ DHT -> Temp: %.2f | Hum: %.2f\n", temp, hum);
+
+    if (!isnan(temp) && !isnan(hum)) {
+      HTTPClient http;
+      http.begin(server_post);
+      http.setTimeout(2000);
+      http.addHeader("Content-Type", "application/json");
+
+      String payload = "{\"temperature\":" + String(temp) +
+                       ",\"humidity\":" + String(hum) + "}";
+
+      int code = http.POST(payload);
+      Serial.printf("📤 POST Sensor (code: %d)\n", code);
+      http.end();
+    } else {
+      Serial.println("❌ Gagal baca DHT");
+    }
+  }
+
+  // ==================================================
+  // 📥 AMBIL DATA DARI FLASK
+  // ==================================================
+  HTTPClient httpGet;
+  httpGet.begin(server_get);
+  httpGet.setTimeout(2000);
+  int httpCode = httpGet.GET();
+
+  if (httpCode > 0) {
+
+    String response = httpGet.getString();
+    Serial.println("📥 Data dari Flask: " + response);
+
+    int tempIndex   = response.indexOf("target_temp");
+    int statusIndex = response.indexOf("ac_status");
+
+    if (tempIndex != -1 && statusIndex != -1) {
+
+      target_temp = response.substring(
+                      tempIndex + 13,
+                      response.indexOf(",", tempIndex)
+                    ).toInt();
+
+      ac_status = response.substring(
+                    statusIndex + 12,
+                    response.indexOf("\"", statusIndex + 12)
+                  );
+
+      Serial.printf("🎯 Target Temp: %d | Status: %s\n",
+                    target_temp, ac_status.c_str());
+
+      bool acChanged   = (ac_status != last_ac_status);
+      bool tempChanged = (target_temp != last_target_temp);
+
+      // ==================================================
+      // 🔥 AC ON (HANYA JIKA ADA PERUBAHAN)
+      // ==================================================
+      if (ac_status == "ON" && (acChanged || tempChanged)) {
+
+        // =======================
+        // LG
+        // =======================
+        if (ac_brand == "LG") {
+
+          uint32_t LG_ON  = 0x08800347;
+          uint32_t LG_18 = 0x0880834F;
+          uint32_t LG_19 = 0x08808440;
+          uint32_t LG_20 = 0x08808541;
+          uint32_t LG_21 = 0x08808642;
+          uint32_t LG_22 = 0x08808743;
+
+          uint32_t irCode = LG_22;
+
+          switch (target_temp) {
+            case 18: irCode = LG_18; break;
+            case 19: irCode = LG_19; break;
+            case 20: irCode = LG_20; break;
+            case 21: irCode = LG_21; break;
+            case 22: irCode = LG_22; break;
+          }
+
+          if (acChanged) {
+            Serial.println("📡 LG POWER ON");
+            irsend.sendLG(LG_ON, 28);
+            delay(2000);
+          }
+
+          Serial.printf("❄️ LG SET %d°C\n", target_temp);
+          irsend.sendLG(irCode, 28);
+        }
+
+        // =======================
+        // MIDEA (TIDAK DIUBAH)
+        // =======================
+        else if (ac_brand == "Midea") {
+
+          uint32_t CMD_ON = 0xB2BF30;
+          uint32_t irCode = CMD_ON;
+
+          switch (target_temp) {
+            case 17: irCode = 0xB2BF00; break;
+            case 18: irCode = 0xB2BF10; break;
+            case 19: irCode = 0xB2BF30; break;
+            case 20: irCode = 0xB2BF20; break;
+            case 21: irCode = 0xB2BF60; break;
+            case 22: irCode = 0xB2BF70; break;
+          }
+
+          if (acChanged) {
+            Serial.println("📡 COOLIX ON");
+            irsend.sendCOOLIX(CMD_ON, 24);
+            delay(2500);
+          }
+
+          irsend.sendCOOLIX(irCode, 24);
+        }
+      }
+
+      // ==================================================
+      // ❄️ AC OFF (HANYA SEKALI)
+      // ==================================================
+      if (ac_status == "OFF" && acChanged) {
+
+        if (ac_brand == "LG") {
+          uint32_t LG_OFF = 0x088C0051;
+          Serial.println("📡 LG OFF");
+          irsend.sendLG(LG_OFF, 28);
+        }
+
+        else if (ac_brand == "Midea") {
+          uint32_t CMD_OFF = 0xB27BE0;
+          Serial.println("📡 COOLIX OFF");
+          irsend.sendCOOLIX(CMD_OFF, 24);
+        }
+
+        Serial.println("✅ AC OFF terkirim!");
+      }
+
+      // ==================================================
+      // 💾 SIMPAN STATE TERAKHIR
+      // ==================================================
+      last_ac_status = ac_status;
+      last_target_temp = target_temp;
+    }
+  }
+
+  httpGet.end();
+  delay(1000); // loop ringan & stabil
+}
